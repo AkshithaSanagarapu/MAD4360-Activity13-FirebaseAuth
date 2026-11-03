@@ -7,7 +7,9 @@ import 'firebase_options.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   runApp(const ProductManagerApp());
 }
@@ -21,7 +23,9 @@ class ProductManagerApp extends StatelessWidget {
       title: 'Firebase Product Manager',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+        ),
         useMaterial3: true,
       ),
       home: const ProductHomePage(),
@@ -37,18 +41,24 @@ class ProductHomePage extends StatefulWidget {
 }
 
 class _ProductHomePageState extends State<ProductHomePage> {
-  final CollectionReference<Map<String, dynamic>> products = FirebaseFirestore
-      .instance
-      .collection('products');
+  final CollectionReference<Map<String, dynamic>> products =
+      FirebaseFirestore.instance.collection('products');
 
-  final TextEditingController searchController = TextEditingController();
+  final TextEditingController searchController =
+      TextEditingController();
+  final TextEditingController minimumController = TextEditingController();
+  final TextEditingController maximumController = TextEditingController();
+  String? filterError;
 
   String searchText = '';
+  double? minimumPrice;
   double? maximumPrice;
 
   @override
   void dispose() {
     searchController.dispose();
+    minimumController.dispose();
+    maximumController.dispose();
     super.dispose();
   }
 
@@ -57,8 +67,10 @@ class _ProductHomePageState extends State<ProductHomePage> {
   }) async {
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) =>
-          ProductFormDialog(products: products, document: document),
+      builder: (dialogContext) => ProductFormDialog(
+        products: products,
+        document: document,
+      ),
     );
   }
 
@@ -74,11 +86,13 @@ class _ProductHomePageState extends State<ProductHomePage> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            onPressed: () =>
+                Navigator.pop(dialogContext, false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
+            onPressed: () =>
+                Navigator.pop(dialogContext, true),
             child: const Text('Delete'),
           ),
         ],
@@ -92,18 +106,45 @@ class _ProductHomePageState extends State<ProductHomePage> {
     } catch (error) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Delete failed: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Delete failed: $error'),
+        ),
+      );
     }
   }
 
   void resetFilters() {
     searchController.clear();
+    minimumController.clear();
+    maximumController.clear();
 
     setState(() {
       searchText = '';
+      minimumPrice = null;
       maximumPrice = null;
+      filterError = null;
     });
+  }
+
+
+  double? _parseBound(String value) {
+    final text = value.trim();
+    return text.isEmpty ? null : double.tryParse(text);
+  }
+
+  String? _validateBounds() {
+    for (final value in [minimumController.text, maximumController.text]) {
+      if (value.trim().isEmpty) continue;
+      final number = double.tryParse(value.trim());
+      if (number == null || !number.isFinite || number < 0) {
+        return 'Enter valid nonnegative price limits.';
+      }
+    }
+    if (minimumPrice != null && maximumPrice != null && minimumPrice! > maximumPrice!) {
+      return 'Minimum price cannot exceed maximum price.';
+    }
+    return null;
   }
 
   @override
@@ -133,7 +174,8 @@ class _ProductHomePageState extends State<ProductHomePage> {
                   ),
                   onChanged: (value) {
                     setState(() {
-                      searchText = value.toLowerCase().trim();
+                      searchText =
+                          value.toLowerCase().trim();
                     });
                   },
                 ),
@@ -141,34 +183,36 @@ class _ProductHomePageState extends State<ProductHomePage> {
                 Row(
                   children: [
                     Expanded(
-                      child: DropdownButtonFormField<double?>(
-                        key: ValueKey(maximumPrice),
-                        initialValue: maximumPrice,
+                      child: TextField(
+                        controller: minimumController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         decoration: const InputDecoration(
-                          labelText: 'Maximum price',
+                          labelText: 'Minimum price',
+                          hintText: 'No minimum',
                           border: OutlineInputBorder(),
                         ),
-                        items: const [
-                          DropdownMenuItem<double?>(
-                            value: null,
-                            child: Text('All prices'),
-                          ),
-                          DropdownMenuItem<double?>(
-                            value: 10,
-                            child: Text('Up to \$10'),
-                          ),
-                          DropdownMenuItem<double?>(
-                            value: 20,
-                            child: Text('Up to \$20'),
-                          ),
-                          DropdownMenuItem<double?>(
-                            value: 30,
-                            child: Text('Up to \$30'),
-                          ),
-                        ],
                         onChanged: (value) {
                           setState(() {
-                            maximumPrice = value;
+                            minimumPrice = _parseBound(value);
+                            filterError = _validateBounds();
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: maximumController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: 'Maximum price',
+                          hintText: 'No maximum',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) {
+                          setState(() {
+                            maximumPrice = _parseBound(value);
+                            filterError = _validateBounds();
                           });
                         },
                       ),
@@ -180,11 +224,17 @@ class _ProductHomePageState extends State<ProductHomePage> {
                     ),
                   ],
                 ),
+                if (filterError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(filterError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  ),
               ],
             ),
           ),
           Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            child: StreamBuilder<
+                QuerySnapshot<Map<String, dynamic>>>(
               stream: products.snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
@@ -197,25 +247,37 @@ class _ProductHomePageState extends State<ProductHomePage> {
                 }
 
                 if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
                 }
 
-                final documents = snapshot.data!.docs.where((document) {
+                if (filterError != null) {
+                  return const Center(child: Text('Please correct the price limits.'));
+                }
+
+                final documents =
+                    snapshot.data!.docs.where((document) {
                   final data = document.data();
 
-                  final name = (data['name'] ?? '').toString().toLowerCase();
+                  final name = (data['name'] ?? '')
+                      .toString()
+                      .toLowerCase();
 
                   final rawPrice = data['price'];
 
                   final price = rawPrice is num
                       ? rawPrice.toDouble()
-                      : double.tryParse(rawPrice?.toString() ?? '');
+                      : double.tryParse(
+                          rawPrice?.toString() ?? '',
+                        );
 
-                  final matchesName = name.contains(searchText);
+                  final matchesName =
+                      name.contains(searchText);
 
                   final matchesPrice =
-                      maximumPrice == null ||
-                      (price != null && price <= maximumPrice!);
+                      (minimumPrice == null || (price != null && price >= minimumPrice!)) &&
+                      (maximumPrice == null || (price != null && price <= maximumPrice!));
 
                   return matchesName && matchesPrice;
                 }).toList();
@@ -234,12 +296,16 @@ class _ProductHomePageState extends State<ProductHomePage> {
 
                 if (documents.isEmpty) {
                   return const Center(
-                    child: Text('No matching products found.'),
+                    child: Text(
+                      'No matching products found.',
+                    ),
                   );
                 }
 
                 return ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 90),
+                  padding: const EdgeInsets.only(
+                    bottom: 90,
+                  ),
                   itemCount: documents.length,
                   itemBuilder: (context, index) {
                     final document = documents[index];
@@ -248,7 +314,9 @@ class _ProductHomePageState extends State<ProductHomePage> {
 
                     final price = rawPrice is num
                         ? rawPrice.toDouble()
-                        : double.tryParse(rawPrice?.toString() ?? '');
+                        : double.tryParse(
+                            rawPrice?.toString() ?? '',
+                          );
 
                     return Card(
                       margin: const EdgeInsets.symmetric(
@@ -257,7 +325,9 @@ class _ProductHomePageState extends State<ProductHomePage> {
                       ),
                       child: ListTile(
                         title: Text(
-                          (data['name'] ?? 'Unnamed product').toString(),
+                          (data['name'] ??
+                                  'Unnamed product')
+                              .toString(),
                         ),
                         subtitle: Text(
                           price != null
@@ -269,14 +339,21 @@ class _ProductHomePageState extends State<ProductHomePage> {
                           children: [
                             IconButton(
                               tooltip: 'Edit',
-                              icon: const Icon(Icons.edit_outlined),
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                              ),
                               onPressed: () =>
-                                  showProductDialog(document: document),
+                                  showProductDialog(
+                                document: document,
+                              ),
                             ),
                             IconButton(
                               tooltip: 'Delete',
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: () => deleteProduct(document),
+                              icon: const Icon(
+                                Icons.delete_outline,
+                              ),
+                              onPressed: () =>
+                                  deleteProduct(document),
                             ),
                           ],
                         ),
@@ -296,17 +373,24 @@ class _ProductHomePageState extends State<ProductHomePage> {
 // Separate stateful dialog manages its own controllers.
 // Controllers are disposed only when the dialog is unmounted.
 class ProductFormDialog extends StatefulWidget {
-  const ProductFormDialog({super.key, required this.products, this.document});
+  const ProductFormDialog({
+    super.key,
+    required this.products,
+    this.document,
+  });
 
   final CollectionReference<Map<String, dynamic>> products;
   final DocumentSnapshot<Map<String, dynamic>>? document;
 
   @override
-  State<ProductFormDialog> createState() => _ProductFormDialogState();
+  State<ProductFormDialog> createState() =>
+      _ProductFormDialogState();
 }
 
-class _ProductFormDialogState extends State<ProductFormDialog> {
-  final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+class _ProductFormDialogState
+    extends State<ProductFormDialog> {
+  final GlobalKey<FormState> formKey =
+      GlobalKey<FormState>();
 
   late final TextEditingController nameController;
   late final TextEditingController priceController;
@@ -348,14 +432,18 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
 
     final productData = <String, dynamic>{
       'name': nameController.text.trim(),
-      'price': double.parse(priceController.text.trim()),
+      'price': double.parse(
+        priceController.text.trim(),
+      ),
     };
 
     try {
       if (widget.document == null) {
         await widget.products.add(productData);
       } else {
-        await widget.products.doc(widget.document!.id).update(productData);
+        await widget.products
+            .doc(widget.document!.id)
+            .update(productData);
       }
 
       if (!mounted) return;
@@ -368,15 +456,22 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
         saving = false;
       });
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Save failed: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Save failed: $error'),
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.document == null ? 'Add Product' : 'Edit Product'),
+      title: Text(
+        widget.document == null
+            ? 'Add Product'
+            : 'Edit Product',
+      ),
       content: SingleChildScrollView(
         child: Form(
           key: formKey,
@@ -386,13 +481,15 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
               TextFormField(
                 controller: nameController,
                 enabled: !saving,
-                textCapitalization: TextCapitalization.words,
+                textCapitalization:
+                    TextCapitalization.words,
                 decoration: const InputDecoration(
                   labelText: 'Product name',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
+                  if (value == null ||
+                      value.trim().isEmpty) {
                     return 'Enter a product name';
                   }
 
@@ -403,7 +500,8 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
               TextFormField(
                 controller: priceController,
                 enabled: !saving,
-                keyboardType: const TextInputType.numberWithOptions(
+                keyboardType:
+                    const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
                 decoration: const InputDecoration(
@@ -412,9 +510,13 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) {
-                  final price = double.tryParse(value?.trim() ?? '');
+                  final price = double.tryParse(
+                    value?.trim() ?? '',
+                  );
 
-                  if (price == null || !price.isFinite || price < 0) {
+                  if (price == null ||
+                      !price.isFinite ||
+                      price < 0) {
                     return 'Enter a valid non-negative price';
                   }
 
@@ -427,12 +529,16 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: saving ? null : () => Navigator.of(context).pop(),
+          onPressed: saving
+              ? null
+              : () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
         FilledButton(
           onPressed: saving ? null : saveProduct,
-          child: Text(saving ? 'Saving...' : 'Save'),
+          child: Text(
+            saving ? 'Saving...' : 'Save',
+          ),
         ),
       ],
     );
