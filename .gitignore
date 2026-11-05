@@ -46,3 +46,6 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Submission APK
+Activity13_Sanagarapu_Akshitha.apk
